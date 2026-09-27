@@ -11,6 +11,10 @@ reports:
     adobe:
         view: adobe_report
         i18n: adobe.report.title
+admin_pages:
+    admin:
+        view: adobe_admin
+        i18n: adobe.admin.title
 widgets:
     adobe_app_name:
         view: adobe_app_name_widget
@@ -20,7 +24,5 @@ widgets:
         view: adobe_base_version_widget
     adobe_year_edition:
         view: adobe_year_edition_widget
-    adobe_version:
-        view: adobe_version_widget
     adobe_is_up_to_date:
         view: adobe_is_up_to_date_widget

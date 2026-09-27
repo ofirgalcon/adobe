@@ -27,6 +27,29 @@
     "up_to_date": "Up to Date",
     "update_available": "Update Available", 
     "unknown_status": "Unknown",
+    "list_tooltip": "Show the Adobe listing",
+    "report_tooltip": "Show the Adobe report",
+    "mapping_health_tooltip": "Validate the year-edition mapping file",
+    "mapping_health_confirm": "Validate Adobe year-edition mapping file now?",
+    "mapping_health_success": "Adobe mapping file is valid.",
+    "mapping_health_failed": "Adobe mapping validation failed",
+    "mapping_health_apps": "Mapped applications",
+    "mapping_health_variations": "App name variations",
+    "mapping_health_admin_only": "Admin access is required for mapping validation.",
+    "admin": {
+        "title": "Adobe Admin",
+        "description": "Validate Adobe mapping configuration and recalculate stored year editions.",
+        "status_title": "Mapping Status",
+        "validate_mapping": "Validate Mapping",
+        "recalculate_years": "Recalculate Year Editions",
+        "recalculate_confirm": "Recalculate year editions for all Adobe records now?",
+        "recalculate_done": "Year edition recalculation completed.",
+        "mapping_file": "Mapping File",
+        "mapping_valid": "Mapping Valid",
+        "mapped_apps": "Mapped Apps",
+        "name_variations": "Name Variations",
+        "last_modified": "Last Modified"
+    },
     "widget": {
         "app_name_title": "Application Names",
         "sapcode_title": "SAP Codes",
@@ -34,6 +57,7 @@
         "year_edition_title": "Year Editions",
         "installed_version_title": "Installed Versions",
         "latest_version_title": "Latest Versions",
-        "is_up_to_date_title": "Up to Date Status"
+        "is_up_to_date_title": "Up to Date Status",
+        "is_up_to_date_tooltip": "Update status of Adobe applications. Red means an update is available, green means up to date, and grey means the status is unknown."
     }
 }

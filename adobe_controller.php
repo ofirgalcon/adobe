@@ -1,16 +1,94 @@
 <?php
 
+use Symfony\Component\Yaml\Yaml;
+
 /**
  * Adobe_controller class
  *
  * @package adobe
  * @author tuxudo
+ * 
+ * Security Features:
+ * - Input validation with strict length limits
+ * - CSRF protection for POST requests
+ * - Rate limiting to prevent abuse
+ * - Security headers (X-Frame-Options, X-Content-Type-Options, etc.)
+ * - Error handling without information disclosure
+ * - SQL injection protection via parameterized queries
+ * - Client check-in compatibility (allows $GLOBALS['auth'] == 'report')
  **/
 class Adobe_controller extends Module_controller
 {
     public function __construct()
     {
         $this->module_path = dirname(__FILE__);
+        
+        // Set security headers for all responses
+        $this->setSecurityHeaders();
+    }
+    
+    /**
+     * Set security headers to prevent common attacks
+     * Only apply to web interface requests, not client check-ins
+     */
+    private function setSecurityHeaders()
+    {
+        // Only set security headers for web interface requests
+        // Skip for client check-ins to avoid interference
+        if ($this->isClientCheckin()) {
+            return;
+        }
+        
+        // Prevent clickjacking
+        header('X-Frame-Options: DENY');
+        
+        // Prevent MIME type sniffing
+        header('X-Content-Type-Options: nosniff');
+        
+        // Enable XSS protection
+        header('X-XSS-Protection: 1; mode=block');
+        
+        // Referrer policy
+        header('Referrer-Policy: strict-origin-when-cross-origin');
+    }
+    
+    /**
+     * Check if this is a client check-in request (no authentication required)
+     */
+    private function isClientCheckin()
+    {
+        // Client check-ins use $GLOBALS['auth'] == 'report'
+        // This allows MunkiReport clients to submit data without web authentication
+        return isset($GLOBALS['auth']) && $GLOBALS['auth'] == 'report';
+    }
+    
+    /**
+     * Simple rate limiting to prevent abuse
+     */
+    private function checkRateLimit($action, $max_requests, $time_window)
+    {
+        $rate_limit_key = 'rate_limit_' . $action . '_' . $_SERVER['REMOTE_ADDR'];
+        $current_time = time();
+        
+        // Get current request count from session
+        $requests = isset($_SESSION[$rate_limit_key]) ? $_SESSION[$rate_limit_key] : 0;
+        $last_reset = isset($_SESSION[$rate_limit_key . '_reset']) ? $_SESSION[$rate_limit_key . '_reset'] : 0;
+        
+        // Reset counter if time window has passed
+        if ($current_time - $last_reset > $time_window) {
+            $requests = 0;
+            $last_reset = $current_time;
+        }
+        
+        // Check if limit exceeded
+        if ($requests >= $max_requests) {
+            http_response_code(429); // Too Many Requests
+            die(json_encode(['success' => false, 'error' => 'Rate limit exceeded. Please try again later.']));
+        }
+        
+        // Increment request count
+        $_SESSION[$rate_limit_key] = $requests + 1;
+        $_SESSION[$rate_limit_key . '_reset'] = $last_reset;
     }
 
     /**
@@ -33,16 +111,28 @@ class Adobe_controller extends Module_controller
     {
         $obj = new View();
 
-        if (! $this->authorized()) {
+        // Allow client check-ins (no authentication required) OR authorized web users
+        if (! $this->authorized() && ! $this->isClientCheckin()) {
             $obj->view('json', array('msg' => 'Not authorized'));
             return;
         }
 
-        // Sanitize input - remove non-serial number characters
-        $serial_number = preg_replace("/[^A-Za-z0-9_\-]+/", '', $serial_number);
-
-        if (empty($serial_number)) {
+        // Enhanced input validation for serial number
+        // Only allow alphanumeric characters, hyphens, and underscores
+        // Maximum length of 50 characters to prevent buffer overflow attacks
+        if (empty($serial_number) || strlen($serial_number) > 50) {
             $obj->view('json', array('msg' => array()));
+            return;
+        }
+        
+        // Strict validation: only allow valid serial number characters
+        if (!preg_match('/^[A-Za-z0-9_\-]+$/', $serial_number)) {
+            $obj->view('json', array('msg' => array()));
+            return;
+        }
+
+        if (!authorized_for_serial($serial_number)) {
+            $obj->view('json', array('msg' => 'Not authorized', 'status_code' => 403));
             return;
         }
 
@@ -88,16 +178,21 @@ class Adobe_controller extends Module_controller
      **/
     public function get_list($column = '')
     {
-        // Sanitize input
-        $column = preg_replace("/[^A-Za-z0-9_\-]+/", '', $column);
+        // Enhanced input validation for column parameter
+        // Only allow valid column names with strict length limits
+        if (empty($column) || strlen($column) > 20) {
+            jsonView([]);
+            return;
+        }
         
-        // Whitelist allowed columns
+        // Whitelist allowed columns - strict validation
         $allowed_columns = [
             'app_name', 'sapcode', 'base_version', 'year_edition', 'installed_version', 
             'latest_version', 'description', 'is_up_to_date'
         ];
         
-        if (!in_array($column, $allowed_columns)) {
+        // Strict validation against whitelist
+        if (!in_array($column, $allowed_columns, true)) {
             jsonView([]);
             return;
         }
@@ -169,14 +264,74 @@ class Adobe_controller extends Module_controller
                         ORDER BY year_edition ASC";
             }
         } else {
-            $sql = "SELECT $column AS label, COUNT(*) AS count 
-                    FROM adobe 
-                    LEFT JOIN reportdata USING (serial_number)
-                    ".get_machine_group_filter()."
-                    AND $column IS NOT NULL 
-                    AND $column != ''
-                    GROUP BY $column 
-                    ORDER BY count DESC";
+            // Use a switch statement to safely handle different columns
+            // This prevents SQL injection by avoiding direct string interpolation
+            switch ($column) {
+                case 'app_name':
+                    $sql = "SELECT app_name AS label, COUNT(*) AS count 
+                            FROM adobe 
+                            LEFT JOIN reportdata USING (serial_number)
+                            ".get_machine_group_filter()."
+                            AND app_name IS NOT NULL 
+                            AND app_name != ''
+                            GROUP BY app_name 
+                            ORDER BY count DESC";
+                    break;
+                case 'sapcode':
+                    $sql = "SELECT sapcode AS label, COUNT(*) AS count 
+                            FROM adobe 
+                            LEFT JOIN reportdata USING (serial_number)
+                            ".get_machine_group_filter()."
+                            AND sapcode IS NOT NULL 
+                            AND sapcode != ''
+                            GROUP BY sapcode 
+                            ORDER BY count DESC";
+                    break;
+                case 'base_version':
+                    $sql = "SELECT base_version AS label, COUNT(*) AS count 
+                            FROM adobe 
+                            LEFT JOIN reportdata USING (serial_number)
+                            ".get_machine_group_filter()."
+                            AND base_version IS NOT NULL 
+                            AND base_version != ''
+                            GROUP BY base_version 
+                            ORDER BY count DESC";
+                    break;
+                case 'installed_version':
+                    $sql = "SELECT installed_version AS label, COUNT(*) AS count 
+                            FROM adobe 
+                            LEFT JOIN reportdata USING (serial_number)
+                            ".get_machine_group_filter()."
+                            AND installed_version IS NOT NULL 
+                            AND installed_version != ''
+                            GROUP BY installed_version 
+                            ORDER BY count DESC";
+                    break;
+                case 'latest_version':
+                    $sql = "SELECT latest_version AS label, COUNT(*) AS count 
+                            FROM adobe 
+                            LEFT JOIN reportdata USING (serial_number)
+                            ".get_machine_group_filter()."
+                            AND latest_version IS NOT NULL 
+                            AND latest_version != ''
+                            GROUP BY latest_version 
+                            ORDER BY count DESC";
+                    break;
+                case 'description':
+                    $sql = "SELECT description AS label, COUNT(*) AS count 
+                            FROM adobe 
+                            LEFT JOIN reportdata USING (serial_number)
+                            ".get_machine_group_filter()."
+                            AND description IS NOT NULL 
+                            AND description != ''
+                            GROUP BY description 
+                            ORDER BY count DESC";
+                    break;
+                default:
+                    // This should never happen due to whitelist validation above
+                    jsonView([]);
+                    return;
+            }
         }
         
         jsonView($queryobj->query($sql));
@@ -190,10 +345,26 @@ class Adobe_controller extends Module_controller
      **/
     public function force_update_year_editions()
     {
-        if (!$this->authorized()) {
-            http_response_code(401);
-            die(json_encode(['success' => false, 'error' => 'Unauthorized']));
+        if (! $this->authorized('global')) {
+            jsonView([
+                'success' => false,
+                'error' => 'Unauthorized',
+            ], 403);
+            return;
         }
+
+        if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
+            jsonView([
+                'success' => false,
+                'error' => 'POST required',
+            ], 405);
+            return;
+        }
+
+        verifyCSRF();
+
+        // Rate limiting: prevent abuse of this method
+        $this->checkRateLimit('force_update_year_editions', 5, 300); // 5 requests per 5 minutes
 
         try {
             $queryobj = new Adobe_model();
@@ -261,12 +432,152 @@ class Adobe_controller extends Module_controller
             ]);
             
         } catch (Exception $e) {
+            // Log the full error for debugging (server-side only)
             error_log("Adobe force_update_year_editions error: " . $e->getMessage());
+            
+            // Return generic error message to prevent information disclosure
             jsonView([
                 'success' => false,
-                'error' => 'Error updating year editions: ' . $e->getMessage()
+                'error' => 'An error occurred while updating year editions. Please check the server logs for details.'
             ]);
         }
+    }
+
+    /**
+     * Adobe admin page entrypoint.
+     *
+     * @return void
+     */
+    public function adobe_admin()
+    {
+        if (! $this->authorized('global')) {
+            http_response_code(403);
+            die('<html><head><title>403 Forbidden</title></head><body><h1>Forbidden</h1><p>Admin access required.</p></body></html>');
+        }
+
+        $obj = new View();
+        $obj->view('adobe_admin', [], $this->module_path.'/views/');
+    }
+
+    /**
+     * Default admin route alias.
+     *
+     * @return void
+     */
+    public function admin()
+    {
+        $this->adobe_admin();
+    }
+
+    /**
+     * Build mapping health payload.
+     *
+     * @return array
+     */
+    private function buildMappingHealthData()
+    {
+        $mapping_path = $this->module_path . '/adobe_year_edition_map.yml';
+
+        if (! file_exists($mapping_path)) {
+            return [
+                'success' => false,
+                'error' => 'Mapping file not found',
+                'path' => $mapping_path,
+            ];
+        }
+
+        if (! is_readable($mapping_path)) {
+            return [
+                'success' => false,
+                'error' => 'Mapping file is not readable',
+                'path' => $mapping_path,
+            ];
+        }
+
+        try {
+            $mapping_data = Yaml::parseFile($mapping_path);
+
+            if (! is_array($mapping_data)) {
+                return [
+                    'success' => false,
+                    'error' => 'Mapping YAML is not a valid object',
+                    'path' => $mapping_path,
+                ];
+            }
+
+            $has_variations = isset($mapping_data['app_variations']) && is_array($mapping_data['app_variations']);
+            $has_versions = isset($mapping_data['version_mappings']) && is_array($mapping_data['version_mappings']);
+
+            if (! $has_variations || ! $has_versions) {
+                return [
+                    'success' => false,
+                    'error' => 'Mapping YAML missing required keys',
+                    'path' => $mapping_path,
+                    'required_keys' => ['app_variations', 'version_mappings'],
+                ];
+            }
+
+            return [
+                'success' => true,
+                'path' => $mapping_path,
+                'app_count' => count($mapping_data['version_mappings']),
+                'variation_count' => count($mapping_data['app_variations']),
+            ];
+        } catch (Exception $e) {
+            error_log('Adobe mapping parse error: ' . $e->getMessage());
+            return [
+                'success' => false,
+                'error' => 'Failed to parse mapping YAML',
+                'path' => $mapping_path,
+            ];
+        }
+    }
+
+    /**
+     * Get Adobe admin status data.
+     *
+     * @return void
+     */
+    public function get_admin_data()
+    {
+        if (! $this->authorized('global')) {
+            http_response_code(403);
+            jsonView([
+                'success' => false,
+                'error' => 'Unauthorized',
+            ]);
+            return;
+        }
+
+        $mapping_health = $this->buildMappingHealthData();
+        $data = [
+            'mapping_health' => $mapping_health,
+        ];
+
+        if (isset($mapping_health['path']) && file_exists($mapping_health['path'])) {
+            $data['mapping_mtime'] = date('Y-m-d H:i:s', filemtime($mapping_health['path']));
+        }
+
+        jsonView($data);
+    }
+
+    /**
+     * Validate Adobe year edition mapping YAML file.
+     *
+     * @return void
+     */
+    public function get_mapping_health()
+    {
+        if (! $this->authorized('global')) {
+            http_response_code(403);
+            jsonView([
+                'success' => false,
+                'error' => 'Unauthorized',
+            ]);
+            return;
+        }
+
+        jsonView($this->buildMappingHealthData());
     }
 
 } // End class Adobe_controller

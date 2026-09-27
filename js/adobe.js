@@ -3,18 +3,21 @@ var formatAdobeUpToDate = function(col, row) {
     var cell = $('td:eq('+col+')', row),
         value = cell.text().trim();
     
+    var labelHtml = '';
     switch (value) {
         case '1':
-            value = mr.label(i18n.t('yes'), 'success');
+            labelHtml = mr.label(i18n.t('yes'), 'success');
             break;
         case '0':
-            value = mr.label(i18n.t('no'), 'danger');
+            labelHtml = mr.label(i18n.t('no'), 'danger');
             break;
         default:
-            value = mr.label(i18n.t('adobe.unknown_status'), 'warning');
+            labelHtml = mr.label(i18n.t('adobe.unknown_status'), 'warning');
     }
     
-    cell.html(value);
+    // Use .html() only with trusted content from mr.label() function
+    // mr.label() is a trusted MunkiReport function that returns safe HTML
+    cell.html(labelHtml);
 }
 
 // Adobe SAP Code filter - restricts search to SAP code column only
@@ -56,9 +59,7 @@ var is_up_to_date_filter = function(colNumber, d) {
 
     // Look for 'unknown_status' keyword
     if (d.search.value.match(/^unknown_status$/)) {
-        // Search for values that are neither 1 nor 0 (null/unknown status)
-        d.columns[colNumber].search.value = '^(?!0$|1$).*';
-        // Clear global search
+        d.columns[colNumber].search.value = 'IS NULL';
         d.search.value = '';
     }
 } 

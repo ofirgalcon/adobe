@@ -1,7 +1,8 @@
 type: scrollbox
 widget_id: adobe-base_version-scrollbox-widget
 api_url: /module/adobe/get_list/base_version
-i18n_app_name: adobe.widget.base_version_app_name
+i18n_title: adobe.widget.base_version_title
+i18n_tooltip: "Shows the base version distribution of Adobe applications across all clients. Each entry displays the version number and count of installations."
 icon: fa-laptop
 listing_link: /show/listing/adobe/adobe
 search_key: label

@@ -17,16 +17,28 @@ Comprehensive reporting for Adobe Creative Cloud applications with  year edition
 
 - **Application Inventory**: Complete list of installed Adobe applications
 - **Version Tracking**: Current vs latest version comparison
-- **Update Status**: Color-coded indicators (green=up-to-date, red=update needed)
+- **Update Status**: Color-coded indicators (green=up-to-date, red=update needed, grey=unknown)
 - **Year Edition Detection**: Automatic mapping to CC 2025, CC 2024, etc.
 - **Smart Sorting**: Year editions sorted chronologically (newest first)
-- **Efficient Caching**: Adobe servers contacted only every 1 hour (configurable in the script)
+- **Efficient Caching**: Installed versions are read locally on every check-in. Adobe servers are contacted only after a successful contact is 6 hours old (`ADOBE_REMOTE_HOURS` in `scripts/adobe`). A failed contact is retried on the next check-in.
+
+## Mapping Configuration
+
+- Year-edition mappings are stored in `adobe_year_edition_map.yml`
+- The module requires this YAML file for year-edition resolution (no hardcoded fallback)
 
 ## Data Collection
 
-- **Script runs**: Every hour (with Munki postflight)
-- **Adobe server contact**: Every 1 hour (configurable in the script)
-- **Cache duration**: 1 hour (configurable in the script)
+The client script is installed in MunkiReport preflight. It runs on each check-in. It does not have its own schedule.
+
+Every check-in runs `AdobeUninstaller --list` on the Mac and rewrites `preflight.d/cache/adobe.plist`. If that command fails or prints nothing, the previous report is left in place. A successful list with no apps still clears the report.
+
+Adobe is contacted only when the last successful contact is missing or older than 6 hours. That time is stored in `preflight.d/cache/adobe_remote.plist` and is written only after a success:
+
+- `RemoteUpdateManager --action=list` asks Adobe's update service for the latest versions. Return code 0 is success.
+- Creative Cloud Desktop (`KCCC`) looks up the current installer version on helpx.adobe.com.
+
+If either contact fails, its success time is left unchanged, so the next check-in tries again. The last good latest versions are kept until a new contact succeeds.
 
 ## Table Schema
 

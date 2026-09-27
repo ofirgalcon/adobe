@@ -4,12 +4,17 @@ api_url: /module/adobe/get_list/is_up_to_date
 i18n_title: adobe.widget.is_up_to_date_title
 icon: fa-check-circle
 listing_link: /show/listing/adobe/adobe
+i18n_tooltip: adobe.widget.is_up_to_date_tooltip
 buttons:
+  - label: "Update Available"
+    i18n_label: adobe.update_available
+    class: btn-danger
+    search_component: update_available
   - label: "Up to Date"
     i18n_label: adobe.up_to_date
     class: btn-success
     search_component: up_to_date
-  - label: "Update Available"
-    i18n_label: adobe.update_available
-    class: btn-danger
-    search_component: update_available 
+  - label: "Unknown"
+    i18n_label: adobe.unknown_status
+    class: btn-default
+    search_component: unknown_status

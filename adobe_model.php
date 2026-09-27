@@ -1,6 +1,7 @@
 <?php
 
 use CFPropertyList\CFPropertyList;
+use Symfony\Component\Yaml\Yaml;
 
 /**
  * Adobe module model
@@ -10,6 +11,40 @@ use CFPropertyList\CFPropertyList;
  **/
 class Adobe_model extends \Model
 {
+    protected static $year_edition_mapping_cache = null;
+
+    /**
+     * Load year edition mappings from YAML configuration file.
+     *
+     * @return array
+     */
+    private static function getYearEditionMappings()
+    {
+        if (self::$year_edition_mapping_cache !== null) {
+            return self::$year_edition_mapping_cache;
+        }
+
+        $mapping_file = dirname(__FILE__) . '/adobe_year_edition_map.yml';
+        if (!is_readable($mapping_file)) {
+            throw new RuntimeException('Adobe mapping file is missing or unreadable: ' . $mapping_file);
+        }
+
+        $mapping_data = Yaml::parseFile($mapping_file);
+        if (
+            !is_array($mapping_data)
+            || !isset($mapping_data['app_variations'])
+            || !isset($mapping_data['version_mappings'])
+            || !is_array($mapping_data['app_variations'])
+            || !is_array($mapping_data['version_mappings'])
+        ) {
+            throw new RuntimeException('Adobe mapping file is invalid: ' . $mapping_file);
+        }
+
+        self::$year_edition_mapping_cache = $mapping_data;
+
+        return self::$year_edition_mapping_cache;
+    }
+
     function __construct($serial_number = '')
     {
         parent::__construct('id', 'adobe'); // Primary key, tablename
@@ -99,358 +134,29 @@ class Adobe_model extends \Model
             }
         }
 
-        // Handle common variations in app names
-        $app_variations = [
-            'Acrobat' => 'Acrobat DC',
-            'Acrobat Pro' => 'Acrobat DC',
-            'Acrobat Pro DC' => 'Acrobat DC',
-            'Adobe Acrobat' => 'Acrobat DC',
-            'Adobe Acrobat DC' => 'Acrobat DC',
-            'Adobe After Effects' => 'After Effects',
-            'Adobe Animate' => 'Animate',
-            'Adobe Audition' => 'Audition',
-            'Adobe Bridge' => 'Bridge',
-            'Adobe Character Animator' => 'Character Animator',
-            'Adobe Creative Cloud' => 'Creative Cloud Desktop',
-            'Adobe Creative Cloud Desktop App' => 'Creative Cloud Desktop',
-            'Adobe Dimension' => 'Dimension',
-            'Adobe Dreamweaver' => 'Dreamweaver',
-            'Adobe Fresco' => 'Fresco',
-            'Adobe Illustrator' => 'Illustrator',
-            'Adobe InCopy' => 'InCopy',
-            'Adobe InDesign' => 'InDesign',
-            'Adobe Lightroom' => 'Lightroom',
-            'Adobe Lightroom Classic' => 'Lightroom Classic',
-            'Adobe Media Encoder' => 'Media Encoder',
-            'Adobe Photoshop' => 'Photoshop',
-            'Adobe Premiere Pro' => 'Premiere Pro',
-            'Adobe Substance 3D Designer' => 'Substance 3D Designer',
-            'Adobe Substance 3D Painter' => 'Substance 3D Painter',
-            'Adobe UXP' => 'UXP Developer Tools',
-            'Adobe UXP Developer Tools' => 'UXP Developer Tools',
-            'Bridge CC (2015)' => 'Bridge',
-            'CC Desktop' => 'Creative Cloud Desktop',
-            'Creative Cloud' => 'Creative Cloud Desktop',
-            'Creative Cloud App' => 'Creative Cloud Desktop',
-            'Creative Cloud Desktop' => 'Creative Cloud Desktop',
-            'Creative Cloud Desktop App' => 'Creative Cloud Desktop',
-            'Premiere Pro CC' => 'Premiere Pro',
-            'Substance Designer' => 'Substance 3D Designer',
-            'Substance Painter' => 'Substance 3D Painter',
-            'UXP Developer Tools' => 'UXP Developer Tools',
-            // Add new mappings for ACR, CCXP, and COSY
-            'ACR' => 'Camera Raw plugin',
-            'CCXP' => 'Creative Cloud Experience',
-            'COSY' => 'Core Sync',
-        ];
+        try {
+            $mapping_data = self::getYearEditionMappings();
+        } catch (\Throwable $e) {
+            error_log('Adobe year edition mapping load failed: ' . $e->getMessage());
+            return '';
+        }
 
-        // Version to year mapping for major Adobe applications
-        $version_mappings = [
-            'Acrobat DC' => [
-                '15.0' => 'CC 2015',
-                '17.0' => 'CC 2017',
-                '19.0' => 'CC 2019',
-                '20.0' => 'CC 2020',
-                '21.0' => 'CC 2021',
-                '22.0' => 'CC 2022',
-                '23.0' => 'CC 2023',
-                '24.0' => 'CC 2024',
-                '25.0' => 'CC 2025',
-            ],
-            'After Effects' => [
-                '13.0' => 'CC 2015',
-                '13.5' => 'CC 2015.1',
-                '14.0' => 'CC 2015.3',
-                '15.0' => 'CC 2018',
-                '16.0' => 'CC 2019',
-                '17.0' => 'CC 2020',
-                '18.0' => 'CC 2021',
-                '22.0' => 'CC 2022',
-                '23.0' => 'CC 2023',
-                '24.0' => 'CC 2024',
-                '25.0' => 'CC 2025',
-            ],
-            'Animate' => [
-                '15.0' => 'CC 2015',
-                '16.0' => 'CC 2016',
-                '17.0' => 'CC 2017',
-                '18.0' => 'CC 2018',
-                '19.0' => 'CC 2019',
-                '20.0' => 'CC 2020',
-                '21.0' => 'CC 2021',
-                '22.0' => 'CC 2022',
-                '23.0' => 'CC 2023',
-                '24.0' => 'CC 2024',
-                '25.0' => 'CC 2025',
-            ],
-            'Audition' => [
-                '8.0' => 'CC 2015',
-                '9.0' => 'CC 2016',
-                '10.0' => 'CC 2017',
-                '11.0' => 'CC 2018',
-                '12.0' => 'CC 2019',
-                '13.0' => 'CC 2020',
-                '14.0' => 'CC 2021',
-                '22.0' => 'CC 2022',
-                '23.0' => 'CC 2023',
-                '24.0' => 'CC 2024',
-                '25.0' => 'CC 2025',
-            ],
-            'Bridge' => [
-                '6.0' => 'CC 2015',
-                '6.3' => 'CC 2015',
-                '7.0' => 'CC 2017',
-                '8.0' => 'CC 2018',
-                '9.0' => 'CC 2019',
-                '10.0' => 'CC 2020',
-                '11.0' => 'CC 2021',
-                '12.0' => 'CC 2022',
-                '13.0' => 'CC 2023',
-                '14.0' => 'CC 2024',
-                '15.0' => 'CC 2025',
-            ],
-            'Character Animator' => [
-                '1.0' => 'CC 2017',
-                '2.0' => 'CC 2019',
-                '3.0' => 'CC 2020',
-                '4.0' => 'CC 2021',
-                '22.0' => 'CC 2022',
-                '23.0' => 'CC 2023',
-                '24.0' => 'CC 2024',
-                '25.0' => 'CC 2025',
-            ],
-            'Creative Cloud Desktop' => [
-                // CC 2015
-                '2.1' => 'CC 2015',
-                '2.2' => 'CC 2015',
-                '2.3' => 'CC 2015',
-                '3.0' => 'CC 2015',
-                '3.4' => 'CC 2015',
-                // CC 2016
-                '3.5' => 'CC 2016',
-                '3.6' => 'CC 2016',
-                '3.7' => 'CC 2016',
-                '3.8' => 'CC 2016',
-                '3.9' => 'CC 2016',
-                // CC 2017
-                '4.0' => 'CC 2017',
-                '4.1' => 'CC 2017',
-                '4.2' => 'CC 2017',
-                '4.3' => 'CC 2017',
-                // CC 2018
-                '4.4' => 'CC 2018',
-                '4.5' => 'CC 2018',
-                '4.6' => 'CC 2018',
-                '4.7' => 'CC 2018',
-                '4.8' => 'CC 2018',
-                '4.9' => 'CC 2018',
-                // CC 2019
-                '5.0' => 'CC 2019',
-                '5.1' => 'CC 2019',
-                '5.2' => 'CC 2019',
-                '5.3' => 'CC 2019',
-                // CC 2020
-                '5.4' => 'CC 2020',
-                '5.5' => 'CC 2020',
-                '5.6' => 'CC 2020',
-                // CC 2021
-                '5.7' => 'CC 2021',
-                '5.8' => 'CC 2021',
-                '5.9' => 'CC 2021',
-                // CC 2022
-                '5.10' => 'CC 2022',
-                '5.11' => 'CC 2022',
-                // CC 2023
-                '6.0' => 'CC 2023',
-                '6.1' => 'CC 2023',
-                // CC 2024
-                '6.2' => 'CC 2024',
-                '6.3' => 'CC 2024',
-                '6.4' => 'CC 2024',
-                // CC 2025
-                '6.5' => 'CC 2025',
-                '6.6' => 'CC 2025',
-                '6.7' => 'CC 2025',
-            ],
-            'Dimension' => [
-                '1.0' => 'CC 2018',
-                '2.0' => 'CC 2019',
-                '3.0' => 'CC 2020',
-                '4.0' => 'CC 2021',
-                '22.0' => 'CC 2022',
-                '23.0' => 'CC 2023',
-                '24.0' => 'CC 2024',
-                '25.0' => 'CC 2025',
-            ],
-            'Dreamweaver' => [
-                '16.0' => 'CC 2015',
-                '17.0' => 'CC 2017',
-                '18.0' => 'CC 2018',
-                '19.0' => 'CC 2019',
-                '20.0' => 'CC 2020',
-                '21.0' => 'CC 2021',
-                '22.0' => 'CC 2022',
-                '23.0' => 'CC 2023',
-                '24.0' => 'CC 2024',
-                '25.0' => 'CC 2025',
-            ],
-            'Fresco' => [
-                '1.0' => 'CC 2019',
-                '2.0' => 'CC 2020',
-                '3.0' => 'CC 2021',
-                '4.0' => 'CC 2022',
-                '5.0' => 'CC 2023',
-                '6.0' => 'CC 2024',
-                '7.0' => 'CC 2025',
-            ],
-            'Illustrator' => [
-                '19.0' => 'CC 2015',
-                '20.0' => 'CC 2016',
-                '21.0' => 'CC 2017',
-                '22.0' => 'CC 2018',
-                '23.0' => 'CC 2019',
-                '24.0' => 'CC 2020',
-                '25.0' => 'CC 2021',
-                '26.0' => 'CC 2022',
-                '27.0' => 'CC 2023',
-                '28.0' => 'CC 2024',
-                '29.0' => 'CC 2025',
-            ],
-            'InCopy' => [
-                '11.0' => 'CC 2015',
-                '12.0' => 'CC 2016',
-                '12.1' => 'CC 2017',
-                '13.0' => 'CC 2018',
-                '14.0' => 'CC 2019',
-                '15.0' => 'CC 2020',
-                '16.0' => 'CC 2021',
-                '17.0' => 'CC 2022',
-                '18.0' => 'CC 2023',
-                '19.0' => 'CC 2024',
-                '20.0' => 'CC 2025',
-            ],
-            'InDesign' => [
-                '11.0' => 'CC 2015',
-                '12.0' => 'CC 2016',
-                '12.1' => 'CC 2017',
-                '13.0' => 'CC 2018',
-                '14.0' => 'CC 2019',
-                '15.0' => 'CC 2020',
-                '16.0' => 'CC 2021',
-                '17.0' => 'CC 2022',
-                '18.0' => 'CC 2023',
-                '19.0' => 'CC 2024',
-                '20.0' => 'CC 2025',
-            ],
-            'Lightroom' => [
-                '1.0' => 'CC 2017',
-                '2.0' => 'CC 2019',
-                '3.0' => 'CC 2020',
-                '4.0' => 'CC 2021',
-                '5.0' => 'CC 2022',
-                '6.0' => 'CC 2023',
-                '7.0' => 'CC 2024',
-                '8.0' => 'CC 2025',
-            ],
-            'Lightroom Classic' => [
-                '6.0' => 'CC 2015',
-                '7.0' => 'CC 2017',
-                '8.0' => 'CC 2019',
-                '9.0' => 'CC 2020',
-                '10.0' => 'CC 2021',
-                '11.0' => 'CC 2022',
-                '12.0' => 'CC 2023',
-                '13.0' => 'CC 2024',
-                '14.0' => 'CC 2025',
-            ],
-            'Media Encoder' => [
-                '9.0' => 'CC 2015',
-                '10.0' => 'CC 2016',
-                '11.0' => 'CC 2017',
-                '12.0' => 'CC 2018',
-                '13.0' => 'CC 2019',
-                '14.0' => 'CC 2020',
-                '15.0' => 'CC 2021',
-                '22.0' => 'CC 2022',
-                '23.0' => 'CC 2023',
-                '24.0' => 'CC 2024',
-                '25.0' => 'CC 2025',
-            ],
-            'Photoshop' => [
-                '16.0' => 'CC 2015',
-                '17.0' => 'CC 2016',
-                '18.0' => 'CC 2017',
-                '19.0' => 'CC 2018',
-                '20.0' => 'CC 2019',
-                '21.0' => 'CC 2020',
-                '22.0' => 'CC 2021',
-                '23.0' => 'CC 2022',
-                '24.0' => 'CC 2023',
-                '25.0' => 'CC 2024',
-                '26.0' => 'CC 2025',
-            ],
-            'Premiere Pro' => [
-                '9.0' => 'CC 2015',
-                '10.0' => 'CC 2016',
-                '11.0' => 'CC 2017',
-                '12.0' => 'CC 2018',
-                '13.0' => 'CC 2019',
-                '14.0' => 'CC 2020',
-                '15.0' => 'CC 2021',
-                '22.0' => 'CC 2022',
-                '23.0' => 'CC 2023',
-                '24.0' => 'CC 2024',
-                '25.0' => 'CC 2025',
-            ],
-            'Rush' => [
-                '1.0' => 'CC 2019',
-                '1.5' => 'CC 2020',
-                '2.0' => 'CC 2021',
-                '2.1' => 'CC 2022',
-                '2.5' => 'CC 2023',
-                '3.0' => 'CC 2024',
-                '3.5' => 'CC 2025',
-            ],
-            'Substance 3D Designer' => [
-                '11.0' => 'CC 2021',
-                '12.0' => 'CC 2022',
-                '13.0' => 'CC 2023',
-                '14.0' => 'CC 2024',
-                '15.0' => 'CC 2025',
-            ],
-            'Substance 3D Painter' => [
-                '7.0' => 'CC 2021',
-                '8.0' => 'CC 2022',
-                '9.0' => 'CC 2023',
-                '10.0' => 'CC 2024',
-                '11.0' => 'CC 2025',
-            ],
-            'UXP Developer Tools' => [
-                '1.0' => 'CC 2021',
-                '2.0' => 'CC 2022',
-                '3.0' => 'CC 2023',
-                '4.0' => 'CC 2024',
-                '5.0' => 'CC 2025',
-            ],
-            'XD' => [
-                '1.0' => 'CC 2017',
-                '13.0' => 'CC 2019',
-                '28.0' => 'CC 2020',
-                '37.0' => 'CC 2021',
-                '48.0' => 'CC 2022',
-                '54.0' => 'CC 2023',
-                '57.0' => 'CC 2024',
-                '58.0' => 'CC 2024',
-                '59.0' => 'CC 2025',
-            ],
-        ];
+        $app_variations = $mapping_data['app_variations'];
+        $version_mappings = $mapping_data['version_mappings'];
 
         // Clean app name for mapping lookup
         $clean_app_name = trim($app_name);
         
+        // Exclude Photoshop Elements and Premiere Elements - these are standalone products, not part of Creative Cloud
+        if (stripos($clean_app_name, 'Photoshop Elements') !== false || stripos($clean_app_name, 'Premiere Elements') !== false) {
+            return '';
+        }
+        
         // Try exact match first
-        if (isset($version_mappings[$clean_app_name][$normalized_version])) {
-            return $version_mappings[$clean_app_name][$normalized_version];
+        if (isset($version_mappings[$clean_app_name])) {
+            if (isset($version_mappings[$clean_app_name][$normalized_version])) {
+                return $version_mappings[$clean_app_name][$normalized_version];
+            }
         }
         
         // Try app name variations
@@ -462,8 +168,17 @@ class Adobe_model extends \Model
         }
         
         // Try partial matches for apps with longer names
+        // But exclude matches where the app name contains "Elements" (standalone products)
         foreach ($version_mappings as $mapped_app => $versions) {
             if (stripos($clean_app_name, $mapped_app) !== false) {
+                // Make sure we're not matching "Photoshop" inside "Photoshop Elements"
+                // Check if the match is at word boundaries or if it's the full app name
+                $match_pos = stripos($clean_app_name, $mapped_app);
+                $after_match = substr($clean_app_name, $match_pos + strlen($mapped_app));
+                // If there's text after the match, check if it starts with " Elements" (space + Elements)
+                if ($after_match !== '' && stripos($after_match, ' Elements') === 0) {
+                    continue; // Skip this match - it's an Elements product
+                }
                 if (isset($versions[$normalized_version])) {
                     return $versions[$normalized_version];
                 }
@@ -481,7 +196,9 @@ class Adobe_model extends \Model
      */
     public function process($plist)
     {
-        if (! $plist) {
+        // Missing payload keeps the previous rows. An empty array is a real
+        // report that this Mac has no Adobe apps.
+        if ($plist === null || $plist === false || $plist === '') {
             throw new Exception("Error Processing Request: No property list found", 1);
         }
 
@@ -492,8 +209,12 @@ class Adobe_model extends \Model
             $plist = $parser->toArray();
         }
 
-        // Safety check: Don't delete data if plist is empty array
-        if (empty($plist) || !is_array($plist)) {
+        if (!is_array($plist)) {
+            return;
+        }
+
+        if (count($plist) === 0) {
+            $this->deleteWhere('serial_number=?', $this->serial_number);
             return;
         }
 
@@ -516,6 +237,11 @@ class Adobe_model extends \Model
             // Check if required keys exist
             if (!isset($item_entry['app_name'], $item_entry['sapcode'])) {
                 continue; // Skip items without required data
+            }
+            
+            // Input validation: check field lengths to prevent buffer overflow attacks
+            if (strlen($item_entry['app_name']) > 255 || strlen($item_entry['sapcode']) > 50) {
+                continue; // Skip items with excessively long data
             }
 
             // Check version data and calculate is_up_to_date

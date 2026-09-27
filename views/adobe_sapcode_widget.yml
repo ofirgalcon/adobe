@@ -2,6 +2,7 @@ type: scrollbox
 widget_id: adobe-sapcode-scrollbox-widget
 api_url: /module/adobe/get_list/sapcode
 i18n_title: adobe.widget.sapcode_title
+i18n_tooltip: "Shows the SAP code distribution of Adobe applications across all clients. SAP codes are unique identifiers for Adobe products."
 icon: fa-code
 listing_link: /show/listing/adobe/adobe
 search_key: label

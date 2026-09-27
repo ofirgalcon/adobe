@@ -2,6 +2,7 @@ type: bargraph
 widget_id: adobe-year_edition-scrollbox-widget
 api_url: /module/adobe/get_list/year_edition
 i18n_title: adobe.widget.year_edition_title
+i18n_tooltip: "Shows the distribution of Adobe application year editions across all clients. Each bar represents a different year/edition with the count of installations."
 icon: fa-calendar
 listing_link: /show/listing/adobe/adobe
 search_key: label

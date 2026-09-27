@@ -4,6 +4,7 @@ api_url: /module/adobe/get_list/app_name
 i18n_title: adobe.widget.app_name_title
 icon: fa-file-pdf-o
 listing_link: /show/listing/adobe/adobe
+i18n_tooltip: "Shows the distribution of Adobe applications installed across all clients. Each bar represents a different Adobe application with the count of installations."
 search_key: label
 badge: count
 margin: {left: 150}
