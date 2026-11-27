@@ -12,11 +12,12 @@ table:
     i18n_header: username
   - column: adobe.app_name
     i18n_header: adobe.app_name_short
+    formatter: formatAdobeAppName
   - column: adobe.sapcode
     i18n_header: adobe.sapcode
     filter: sapcode_filter
-  # - column: adobe.base_version
-    # i18n_header: adobe.base_version
+  - column: adobe.base_version
+    i18n_header: adobe.base_version
   - column: adobe.year_edition
     i18n_header: adobe.year_edition
   - column: adobe.installed_version

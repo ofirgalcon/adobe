@@ -1,3 +1,68 @@
+// Friendly names when listing/tab still have SAP-code placeholders (pre-recheck-in rows).
+var adobeSapAppNames = {
+    ACR: 'Camera Raw plugin',
+    AEFT: 'After Effects',
+    AICY: 'InCopy',
+    AME: 'Media Encoder',
+    AUDT: 'Audition',
+    CCXP: 'Creative Cloud Experience',
+    CHAR: 'Character Animator',
+    COSY: 'Core Sync',
+    DRWV: 'Dreamweaver',
+    ECR: 'Camera Raw Elements',
+    EORG: 'Elements Organizer',
+    ESHR: 'Dimension',
+    FLPR: 'Animate',
+    FRSC: 'Fresco',
+    HPRE: 'Premiere Elements Welcome Screen',
+    HPSE: 'Photoshop Elements Welcome Screen',
+    IDSN: 'InDesign',
+    ILST: 'Illustrator',
+    KBRG: 'Bridge',
+    KCCC: 'Creative Cloud Desktop',
+    LRCC: 'Lightroom',
+    LTRM: 'Lightroom Classic',
+    PHSP: 'Photoshop',
+    PPRO: 'Premiere Pro',
+    PRE: 'Premiere Elements',
+    PRLD: 'Prelude',
+    PSE: 'Photoshop Elements',
+    RUSH: 'Premiere Rush',
+    SBSTA: 'Substance 3D Sampler',
+    SBSTD: 'Substance 3D Designer',
+    SBSTP: 'Substance 3D Painter',
+    SHPR: 'Substance 3D Modeler',
+    SPRK: 'XD',
+    STGR: 'Substance 3D Stager'
+};
+
+var resolveAdobeAppName = function(appName, sapcode) {
+    var name = (appName || '').trim();
+    var code = (sapcode || '').trim();
+    var mapped = adobeSapAppNames[code] || adobeSapAppNames[name] || '';
+    if (mapped && (!name || /^[A-Z][A-Z0-9]{1,7}$/.test(name))) {
+        return mapped;
+    }
+    if (code === 'PPRO' && (name === 'Premiere' || name === 'Adobe Premiere')) {
+        return 'Premiere Pro';
+    }
+    return name || appName || '';
+};
+
+// Local app icons (custom.js). No-op if helper missing or APP_ICONS_PATH unset/missing.
+var formatAdobeAppName = function(colNumber, row) {
+    var col = $('td:eq(' + colNumber + ')', row),
+        rawName = col.text(),
+        sapcode = $('td:eq(' + (colNumber + 1) + ')', row).text().trim(),
+        appName = resolveAdobeAppName(rawName, sapcode);
+
+    if (typeof mr.appIcon === 'function' && mr.appIconsEnabled()) {
+        col.empty().append(mr.appIcon(appName, appName));
+    } else if (appName !== rawName) {
+        col.text(appName);
+    }
+};
+
 // Adobe Up-to-Date Status formatter
 var formatAdobeUpToDate = function(col, row) {
     var cell = $('td:eq('+col+')', row),
@@ -62,4 +127,4 @@ var is_up_to_date_filter = function(colNumber, d) {
         d.columns[colNumber].search.value = 'IS NULL';
         d.search.value = '';
     }
-} 
+}

@@ -1,3 +1,5 @@
+icon: mr-adobe-icon
+icon_mask: /local/adobe_logo_sq.svg
 client_tabs:
     adobe:
         view: adobe_tab

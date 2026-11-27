@@ -1,5 +1,6 @@
 {
-    "name": "munkireport/adobe",
-    "description": "Module for munkireport.",
-    "license": "MIT"
+    "name": "ofirgalcon/adobe",
+    "description": "Adobe Creative Cloud apps module for MunkiReport (year edition detection and version tracking).",
+    "license": "MIT",
+    "homepage": "https://github.com/ofirgalcon/adobe"
 }

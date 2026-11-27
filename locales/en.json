@@ -25,7 +25,7 @@
     "description": "Description",
     "is_up_to_date": "Up to Date",
     "up_to_date": "Up to Date",
-    "update_available": "Update Available", 
+    "update_available": "Update Available",
     "unknown_status": "Unknown",
     "list_tooltip": "Show the Adobe listing",
     "report_tooltip": "Show the Adobe report",
@@ -39,9 +39,12 @@
     "admin": {
         "title": "Adobe Admin",
         "description": "Validate Adobe mapping configuration and recalculate stored year editions.",
+        "actions_title": "Actions",
         "status_title": "Mapping Status",
         "validate_mapping": "Validate Mapping",
+        "validate_help": "Confirm the year-edition mapping file parses and covers expected app names.",
         "recalculate_years": "Recalculate Year Editions",
+        "recalculate_help": "Rebuild year editions from the mapping for every Adobe install record.",
         "recalculate_confirm": "Recalculate year editions for all Adobe records now?",
         "recalculate_done": "Year edition recalculation completed.",
         "mapping_file": "Mapping File",
@@ -58,6 +61,6 @@
         "installed_version_title": "Installed Versions",
         "latest_version_title": "Latest Versions",
         "is_up_to_date_title": "Up to Date Status",
-        "is_up_to_date_tooltip": "Update status of Adobe applications. Red means an update is available, green means up to date, and grey means the status is unknown."
+        "is_up_to_date_tooltip": "Adobe update status: red update available, green up to date, grey unknown."
     }
 }

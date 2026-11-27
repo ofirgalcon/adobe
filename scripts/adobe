@@ -19,17 +19,45 @@ sys.path.insert(0, '/usr/local/munki')
 sys.path.insert(0, '/usr/local/munkireport')
 
 # Configuration
-VERSION = "1.0.4"
+VERSION = "1.0.7"
 # Hours after a successful Adobe contact before the next one. A failure is not recorded, so the next check-in tries again.
 ADOBE_REMOTE_HOURS = 6
+AU_LIST_TIMEOUT = 120
+RUM_LIST_TIMEOUT = 300
 
-def run_command(command):
+# SAP codes RUM does not reliably cover. Never treat "not listed" as up to date.
+RUM_ASSUME_CURRENT_EXCLUDE = {
+    'KCCC',   # Creative Cloud Desktop — helpx path only
+    'PSE', 'PRE', 'HPRE', 'HPSE', 'EORG', 'ECR',  # Elements family
+}
+
+def run_command(command, timeout=None):
     # Split command string into array if it's a string, otherwise use as-is
     if isinstance(command, str):
         command = command.split()
-    
-    # Use shell=False for security - prevents command injection
-    result = subprocess.run(command, shell=False, capture_output=True, text=True)
+
+    try:
+        # Use shell=False for security - prevents command injection
+        result = subprocess.run(
+            command,
+            shell=False,
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+        )
+    except subprocess.TimeoutExpired as e:
+        print(
+            f"Timeout running '{' '.join(command)}' after {timeout}s",
+            file=sys.stderr,
+        )
+        stdout = e.stdout or ''
+        if isinstance(stdout, bytes):
+            stdout = stdout.decode(errors='replace')
+        return stdout.strip(), -1
+    except (OSError, PermissionError) as e:
+        print(f"Error running '{' '.join(command)}': {e}", file=sys.stderr)
+        return '', -1
+
     # Only print error if return code is not 0, 1, or 2
     if result.returncode not in (0, 1, 2):
         print(f"Error running '{' '.join(command)}': {result.stderr}", file=sys.stderr)
@@ -43,7 +71,11 @@ def remote_fetch_is_fresh(fetched_at):
         return False
     if fetched_at <= 0:
         return False
-    return (time.time() - fetched_at) < (ADOBE_REMOTE_HOURS * 3600)
+    now = time.time()
+    # Clock skew / future stamp must not suppress retries forever.
+    if fetched_at > now + 60:
+        return False
+    return (now - fetched_at) < (ADOBE_REMOTE_HOURS * 3600)
 
 def empty_remote_cache():
     return {
@@ -85,13 +117,28 @@ def rum_list_succeeded(output):
     return re.search(r'RemoteUpdateManager exiting with Return Code \(0\)', output) is not None
 
 def fetch_rum_list():
-    output, _returncode = run_command('/usr/local/bin/RemoteUpdateManager --action=list')
+    output, _returncode = run_command(
+        ['/usr/local/bin/RemoteUpdateManager', '--action=list'],
+        timeout=RUM_LIST_TIMEOUT,
+    )
     success = rum_list_succeeded(output)
     filtered = "\n".join(
         line for line in output.splitlines()
         if not re.match(r"RemoteUpdateManager exiting with Return Code \((0|1|2)\)", line)
     )
     return parse_rum_data(filtered), success
+
+
+def overlay_rum_list(cached_list, partial_list):
+    """Merge a partial RUM list onto the cached complete list by sapcode."""
+    by_sap = {}
+    for item in cached_list or []:
+        if isinstance(item, dict) and item.get('sapcode'):
+            by_sap[item['sapcode']] = item
+    for item in partial_list or []:
+        if isinstance(item, dict) and item.get('sapcode'):
+            by_sap[item['sapcode']] = item
+    return list(by_sap.values())
 
 def normalize_version(version_string):
     """Normalize version string for comparison"""
@@ -145,11 +192,32 @@ def set_update_status(item):
     item['is_up_to_date'] = ''
 
 
+def au_output_has_header(au_data):
+    """True when AdobeUninstaller --list output includes the expected column header."""
+    if not au_data or not str(au_data).strip():
+        return False
+    for line in str(au_data).splitlines():
+        lower = line.lower()
+        if 'sap' in lower and 'version' in lower:
+            return True
+    return False
+
+
 def parse_au_data(au_data):
+    """
+    Parse AdobeUninstaller --list output.
+    Returns (au_list, parse_ok). parse_ok is False when the output format is unexpected.
+    """
+    if not au_data or not str(au_data).strip():
+        return [], False
+
+    if not au_output_has_header(au_data):
+        return [], False
+
     lines = au_data.strip().split("\n")
-    # Check if there is no data after the headers
+    # Header-only / empty inventory still counts as a successful parse.
     if len(lines) <= 3:
-        return []
+        return [], True
 
     lines = lines[2:-1]  # Skip the first two lines and the last line
 
@@ -160,12 +228,12 @@ def parse_au_data(au_data):
         parts = line.split()
         if len(parts) < 4:  # Need at least 4 parts: app_name sapcode base_version installed_version
             continue
-            
+
         sapcode = parts[-3]
         base_version = parts[-2]
         installed_version = parts[-1]
         app_name = ' '.join(parts[:-3])
-        
+
         au_list.append({
             'app_name': app_name,
             'sapcode': sapcode,
@@ -175,7 +243,7 @@ def parse_au_data(au_data):
             'description': '',
             'is_up_to_date': ''
         })
-    return au_list
+    return au_list, True
 
 def parse_rum_data(rum_data):
     rum_list = []
@@ -191,73 +259,83 @@ def parse_rum_data(rum_data):
             })
     return rum_list
 
-def merge_data(au_list, rum_list):
-    # Create a set of SAP codes that are mentioned in RUM output
+def merge_data(au_list, rum_list, rum_list_trusted=False):
+    """
+    Merge installed apps with RUM latest versions.
+
+    rum_list_trusted: True only after a successful RUM list (return code 0),
+    including a still-fresh cached successful list. Never True for failed/partial
+    runs. When trusted, an installed app that RUM did not list is treated as
+    current (latest_version = installed_version) so the server stores Yes.
+    """
     rum_sapcodes = {item['sapcode'] for item in rum_list}
     au_sapcodes = {item['sapcode'] for item in au_list}
-    
 
-    
-    # Handle apps that appear in AU but not in RUM
     for au_item in au_list:
-        # Skip Creative Cloud Desktop (KCCC) since RemoteUpdateManager doesn't support it
+        # Creative Cloud Desktop is updated via helpx, not RUM.
         if au_item['sapcode'] == 'KCCC':
             continue
-            
-        # Check if this app is mentioned in RUM output
-        if au_item['sapcode'] in rum_sapcodes:
 
-            # App is mentioned in RUM - get its latest version from RUM data
-            # Find the best matching RUM item for this AU item
+        if au_item['sapcode'] in rum_sapcodes:
+            # App is mentioned in RUM — use RUM's latest version.
             best_match = None
             for rum_item in rum_list:
                 if au_item['sapcode'] == rum_item['sapcode']:
-                    # Try to match by major version number
                     au_major = au_item['base_version'].split('.')[0] if au_item['base_version'] else None
                     rum_major = rum_item['latest_version'].split('.')[0] if rum_item['latest_version'] else None
-                    
+
                     if au_major and rum_major and au_major == rum_major:
                         best_match = rum_item
                         break
                     elif not best_match:
-                        # If no major version match, use the first one found
                         best_match = rum_item
-            
+
             if best_match:
                 au_item['latest_version'] = best_match['latest_version']
                 au_item['description'] = best_match['description']
             else:
-                print(f"Warning: No match found for {au_item['app_name']} {au_item['sapcode']} {au_item['base_version']}", file=sys.stderr)
+                print(
+                    f"Warning: No match found for {au_item['app_name']} "
+                    f"{au_item['sapcode']} {au_item['base_version']}",
+                    file=sys.stderr,
+                )
                 au_item['latest_version'] = ''
                 au_item['description'] = ''
             set_update_status(au_item)
+            continue
+
+        # Not listed by RUM.
+        sap = au_item.get('sapcode') or ''
+        installed = au_item.get('installed_version') or ''
+        if (
+            rum_list_trusted
+            and sap not in RUM_ASSUME_CURRENT_EXCLUDE
+            and installed
+        ):
+            # Successful RUM list omitted this app → no update offered.
+            # Mirror installed as latest so server-side compare stores Yes.
+            au_item['latest_version'] = installed
+            au_item['description'] = ''
+            set_update_status(au_item)
         else:
-            # Remote Update Manager did not list this app. That is unknown, not up to date.
+            # Failed/partial/never-succeeded RUM, or excluded SAP → Unknown.
             au_item['latest_version'] = ''
             au_item['description'] = ''
             au_item['is_up_to_date'] = ''
-    
-    # Handle apps that appear in RUM but not in AU (missing from AdobeUninstaller)
+
+    # Apps that appear in RUM but not in AU (missing from AdobeUninstaller)
     for rum_item in rum_list:
         if rum_item['sapcode'] not in au_sapcodes and rum_item['sapcode'] != 'KCCC':
-
-            
-            app_name = rum_item['sapcode']
-            installed_version = ''
-            latest_version = rum_item['latest_version']
-            description = rum_item['description']
-            
-            # Create a placeholder entry for apps that appear in RUM but not AU
             au_list.append({
-                'app_name': app_name,
+                'app_name': rum_item['sapcode'],
                 'sapcode': rum_item['sapcode'],
                 'base_version': '',
-                'installed_version': installed_version,
-                'latest_version': latest_version,
-                'description': description,
+                'installed_version': '',
+                'latest_version': rum_item['latest_version'],
+                'description': rum_item['description'],
                 'is_up_to_date': ''
             })
-    
+
     return au_list
 
 def clean_data_for_plist(data):
@@ -275,22 +353,70 @@ def clean_data_for_plist(data):
         cleaned_data.append(cleaned_item)
     return cleaned_data
 
+# Friendly names for Adobe SAP codes. Used when RUM lists an update with no
+# AdobeUninstaller match (placeholder rows used to store sapcode as app_name).
+SAP_APP_NAMES = {
+    'ACR': 'Camera Raw plugin',
+    'AEFT': 'After Effects',
+    'AICY': 'InCopy',
+    'AME': 'Media Encoder',
+    'AUDT': 'Audition',
+    'CCXP': 'Creative Cloud Experience',
+    'CHAR': 'Character Animator',
+    'COSY': 'Core Sync',
+    'DRWV': 'Dreamweaver',
+    'ECR': 'Camera Raw Elements',
+    'EORG': 'Elements Organizer',
+    'ESHR': 'Dimension',
+    'FLPR': 'Animate',
+    'FRSC': 'Fresco',
+    'HPRE': 'Premiere Elements Welcome Screen',
+    'HPSE': 'Photoshop Elements Welcome Screen',
+    'IDSN': 'InDesign',
+    'ILST': 'Illustrator',
+    'KBRG': 'Bridge',
+    'KCCC': 'Creative Cloud Desktop',
+    'LRCC': 'Lightroom',
+    'LTRM': 'Lightroom Classic',
+    'PHSP': 'Photoshop',
+    'PPRO': 'Premiere Pro',
+    'PRE': 'Premiere Elements',
+    'PRLD': 'Prelude',
+    'PSE': 'Photoshop Elements',
+    'RUSH': 'Premiere Rush',
+    'SBSTA': 'Substance 3D Sampler',
+    'SBSTD': 'Substance 3D Designer',
+    'SBSTP': 'Substance 3D Painter',
+    'SHPR': 'Substance 3D Modeler',
+    'SPRK': 'XD',
+    'STGR': 'Substance 3D Stager',
+}
+
+
+def looks_like_sapcode(name):
+    """True when name is empty or an uppercase SAP-style token."""
+    name = (name or '').strip()
+    if not name:
+        return True
+    return re.fullmatch(r'[A-Z][A-Z0-9]{1,7}', name) is not None
+
+
+def resolve_app_name(sapcode, app_name):
+    """Prefer a real product name over a raw SAP code placeholder."""
+    sapcode = (sapcode or '').strip()
+    mapped = SAP_APP_NAMES.get(sapcode, '')
+    if mapped and looks_like_sapcode(app_name):
+        return mapped
+    # Keep known short AU names tidy
+    if sapcode == 'PPRO' and (app_name or '').strip() in ('Premiere', 'Adobe Premiere'):
+        return 'Premiere Pro'
+    return app_name
+
+
 def update_app_names(data):
-    """Update app names for specific SAP codes"""
+    """Replace SAP-code placeholders with friendly application names."""
     for item in data:
-        sapcode = item.get('sapcode', '')
-        app_name = item.get('app_name', '')
-        
-        # Handle ACR - should be "Camera Raw plugin"
-        if sapcode == 'ACR':
-            item['app_name'] = 'Camera Raw plugin'
-        # Handle CCXP - should be "Creative Cloud Experience"
-        elif sapcode == 'CCXP':
-            item['app_name'] = 'Creative Cloud Experience'
-        # Handle COSY - should be "Core Sync"
-        elif sapcode == 'COSY':
-            item['app_name'] = 'Core Sync'
-    
+        item['app_name'] = resolve_app_name(item.get('sapcode', ''), item.get('app_name', ''))
     return data
 
 def get_acrobat_reader_version():
@@ -377,20 +503,25 @@ if not os.path.exists(adobe_uninstaller_path):
     sys.exit(0)
 
 # Installed apps are read on every check-in. This does not contact Adobe.
-au_output, au_returncode = run_command(adobe_uninstaller_path + ' --list')
-au_list = parse_au_data(au_output)
-# A failed or empty list must not replace the saved report. Exit 0 with a
-# header and no app rows is a real "nothing installed" result and still clears it.
-if not au_output.strip() or (au_returncode != 0 and not au_list):
+au_output, au_returncode = run_command(
+    [adobe_uninstaller_path, '--list'],
+    timeout=AU_LIST_TIMEOUT,
+)
+au_list, au_parse_ok = parse_au_data(au_output)
+# A failed, timed-out, empty, or unparseable list must not replace the saved report.
+# Exit 0 with a recognized header and no app rows is a real "nothing installed" result.
+if not au_parse_ok or (au_returncode != 0 and not au_list):
     print("AdobeUninstaller --list failed. Keeping the previous Adobe report.", file=sys.stderr)
     sys.exit(0)
 
 remote = load_remote_cache(remote_cache_plist)
 rum_list = remote['rum_list']
+# Trusted only from a successful RUM list (live or still-fresh cache).
+rum_list_trusted = remote_fetch_is_fresh(remote.get('rum_fetched_at'))
 
 # Ask Adobe for latest versions only after a successful contact is 6 hours old.
 # A failure leaves rum_fetched_at unchanged, so the next check-in tries again.
-if not remote_fetch_is_fresh(remote.get('rum_fetched_at')):
+if not rum_list_trusted:
     if not os.path.exists(remote_update_manager_path):
         print(f"RemoteUpdateManager not found at {remote_update_manager_path}. Please install RemoteUpdateManager to use this module.", file=sys.stderr)
     else:
@@ -399,8 +530,13 @@ if not remote_fetch_is_fresh(remote.get('rum_fetched_at')):
             rum_list = fresh_rum_list
             remote['rum_list'] = fresh_rum_list
             remote['rum_fetched_at'] = int(time.time())
+            rum_list_trusted = True
         elif fresh_rum_list:
-            rum_list = fresh_rum_list
+            # Partial list: overlay onto cache for this run; do not mark success
+            # and do not treat unlisted apps as up to date.
+            rum_list = overlay_rum_list(rum_list, fresh_rum_list)
+            remote['rum_list'] = rum_list
+            rum_list_trusted = False
 
 has_kccc = any(item.get('sapcode') == 'KCCC' for item in au_list)
 if has_kccc and not remote_fetch_is_fresh(remote.get('ccd_fetched_at')):
@@ -418,27 +554,22 @@ if has_kccc and ccd_version:
 
 save_remote_cache(remote_cache_plist, remote)
 
-if not au_list and rum_list:
-    for rum_item in rum_list:
-        au_list.append({
-            'app_name': rum_item['sapcode'],
-            'sapcode': rum_item['sapcode'],
-            'base_version': '',
-            'installed_version': '',
-            'latest_version': rum_item['latest_version'],
-            'description': rum_item['description'],
-            'is_up_to_date': ''
-        })
-
-merged_data = merge_data(au_list, rum_list)
+merged_data = merge_data(au_list, rum_list, rum_list_trusted=rum_list_trusted)
 merged_data = update_app_names(merged_data)
 clean_data = clean_data_for_plist(merged_data)
 
 try:
-    with open(output_plist, 'wb') as plist_file:
+    tmp_plist = output_plist + '.tmp'
+    with open(tmp_plist, 'wb') as plist_file:
         plistlib.dump(clean_data, plist_file)
+    os.replace(tmp_plist, output_plist)
 except Exception as e:
-    print(f"Failed to write plist: {e}")
+    print(f"Failed to write plist: {e}", file=sys.stderr)
+    try:
+        if os.path.exists(output_plist + '.tmp'):
+            os.remove(output_plist + '.tmp')
+    except OSError:
+        pass
     sys.exit(1)
 
 

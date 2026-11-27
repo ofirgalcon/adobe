@@ -366,75 +366,66 @@ class Adobe_controller extends Module_controller
         // Rate limiting: prevent abuse of this method
         $this->checkRateLimit('force_update_year_editions', 5, 300); // 5 requests per 5 minutes
 
+        // Refuse to wipe fleet year editions when the mapping file is broken.
+        $mapping_health = $this->buildMappingHealthData();
+        if (empty($mapping_health['success'])) {
+            jsonView([
+                'success' => false,
+                'error' => 'Year-edition mapping is invalid or unreadable. Fix the mapping file before recalculating.',
+            ], 500);
+            return;
+        }
+
         try {
             $queryobj = new Adobe_model();
-            
+
             // Get all Adobe records that need year edition updates
-            $sql = "SELECT id, serial_number, app_name, base_version, installed_version, year_edition 
-                    FROM adobe 
-                    WHERE app_name IS NOT NULL 
+            $sql = "SELECT id, serial_number, app_name, sapcode, base_version, installed_version, year_edition
+                    FROM adobe
+                    WHERE app_name IS NOT NULL
                     AND (base_version IS NOT NULL OR installed_version IS NOT NULL)";
-            
+
             $records = $queryobj->query($sql);
             $updated = 0;
             $total = count($records);
-            
+
             foreach ($records as $record) {
                 $app_name = $record->app_name;
                 $base_version = $record->base_version;
                 $installed_version = $record->installed_version;
-                
-                // For Lightroom, Lightroom Classic, XD, and Substance 3D Painter, use installed version instead of base version
-                $version_for_mapping = $base_version;
-                if (stripos($app_name, 'Lightroom') !== false || stripos($app_name, 'XD') !== false || stripos($app_name, 'Substance 3D Painter') !== false) {
-                    if (!empty($installed_version)) {
-                        // Extract major version number and add .0
-                        if (preg_match('/^(\d+)\./', $installed_version, $matches)) {
-                            $version_for_mapping = $matches[1] . '.0';
-                        }
-                    }
-                }
-                
-                // Normalize version format to x.x for most applications
-                // Handle both x.x.x and x.x formats, extract just x.x
-                // Note: Creative Cloud Desktop uses three-part versions and should not be normalized
-                if (!empty($version_for_mapping) && stripos($app_name, 'Creative Cloud') === false) {
-                    // If it's already in x.x format, keep it
-                    if (preg_match('/^\d+\.\d+$/', $version_for_mapping)) {
-                        // Already in correct format, do nothing
-                    }
-                    // If it's in x.x.x format, extract x.x
-                    elseif (preg_match('/^(\d+\.\d+)\./', $version_for_mapping, $matches)) {
-                        $version_for_mapping = $matches[1];
-                    }
-                    // If it's just x format, add .0
-                    elseif (preg_match('/^(\d+)$/', $version_for_mapping, $matches)) {
-                        $version_for_mapping = $matches[1] . '.0';
-                    }
-                }
-                
-                // Calculate new year edition
-                $new_year_edition = Adobe_model::getYearEdition($app_name, $version_for_mapping);
-                
-                // Update if year edition has changed
-                if ($new_year_edition !== $record->year_edition) {
+                $sapcode = $record->sapcode ?? '';
+
+                $version_for_mapping = Adobe_model::versionForYearEditionMapping(
+                    $app_name,
+                    $base_version,
+                    $installed_version,
+                    $sapcode
+                );
+
+                // Match process(): unmapped → NULL (not ''). Avoid NULL !== '' false churn.
+                $new_year_edition = Adobe_model::normalizeYearEditionValue(
+                    Adobe_model::getYearEdition($app_name, $version_for_mapping)
+                );
+                $current_year_edition = Adobe_model::normalizeYearEditionValue($record->year_edition);
+
+                if ($new_year_edition !== $current_year_edition) {
                     $update_sql = "UPDATE adobe SET year_edition = ? WHERE id = ?";
                     $queryobj->query($update_sql, [$new_year_edition, $record->id]);
                     $updated++;
                 }
             }
-            
+
             jsonView([
                 'success' => true,
                 'updated' => $updated,
                 'total' => $total,
                 'message' => "Updated year editions for {$updated} of {$total} records"
             ]);
-            
+
         } catch (Exception $e) {
             // Log the full error for debugging (server-side only)
             error_log("Adobe force_update_year_editions error: " . $e->getMessage());
-            
+
             // Return generic error message to prevent information disclosure
             jsonView([
                 'success' => false,

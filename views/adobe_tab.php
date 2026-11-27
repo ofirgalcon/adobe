@@ -9,12 +9,12 @@
         <i class="btn btn-default tab-btn fa fa-bar-chart-o"></i>
     </a>
 </div>
-<div id="mapping_health_btn" style="font-size: large; float: right;">
+<div id="mapping_health_btn" style="font-size: large; float: right; margin-right: 10px;">
     <a href="#" id="adobe-mapping-health-btn" data-toggle="tooltip" data-placement="bottom" data-i18n="[title]adobe.mapping_health_tooltip">
-        <i class="btn btn-default tab-btn fa fa-stethoscope"></i>
+        <i class="btn btn-default tab-btn fa fa-map"></i>
     </a>
 </div>
-<h2><i class="fa fa-creative-commons"></i> <span data-i18n="adobe.listing.title"></span> <span id="adobe-cnt" class="badge"></span></h2>
+<h2><?= module_icon_html('mr-adobe-icon', '/local/adobe_logo_sq.svg') ?> <span data-i18n="adobe.listing.title"></span></h2>
 
 <div id="adobe-msg" data-i18n="loading"></div>
 <div id="adobe-table-view" class="hide">
@@ -36,6 +36,7 @@
     </table>
 </div>
 
+<script src="<?=url('module/adobe/js/adobe')?>"></script>
 <script>
 // Adobe Tab - Security hardened against XSS attacks
 // All user data is properly escaped using .text() method
@@ -79,7 +80,10 @@ $(document).on('appReady', function(e, lang) {
         // Check if we have data
         if(!adobeData || !adobeData.length){
             $('#adobe-msg').text(i18n.t('no_data'));
-            $('#adobe-cnt').text(''); // Clear badge when no data
+            $('#adobe-cnt').empty().hide()
+                .removeClass('alert-success alert-warning alert-danger alert-info')
+                .removeAttr('data-mr-badge-pending')
+                .attr('data-mr-badge-from-tab', '1');
             return;
         }
         
@@ -98,8 +102,17 @@ $(document).on('appReady', function(e, lang) {
             }
             
             var row = $('<tr>');
-            // Use .text() to safely escape all user data
-            row.append($('<td>').text(app.app_name || ''));
+            // App name + local icon (mr.appIcon). Resolve SAP placeholders for older rows.
+            var appName = (typeof resolveAdobeAppName === 'function')
+                ? resolveAdobeAppName(app.app_name || '', app.sapcode || '')
+                : (app.app_name || '');
+            var nameCell = $('<td>');
+            if (typeof mr.appIcon === 'function' && mr.appIconsEnabled()) {
+                nameCell.append(mr.appIcon(appName, appName));
+            } else {
+                nameCell.text(appName);
+            }
+            row.append(nameCell);
             row.append($('<td>').text(app.sapcode || ''));
             row.append($('<td>').text(app.base_version || ''));
             row.append($('<td>').text(app.year_edition || ''));
@@ -139,13 +152,30 @@ $(document).on('appReady', function(e, lang) {
             "bServerSide": false,
             "aaSorting": [[0,'asc']],
             "fnDrawCallback": function( oSettings ) {
-                // Safely set the count without HTML injection
-                $('#adobe-cnt').text(oSettings.fnRecordsTotal());
+                // Safely set the count without HTML injection; hide literal 0.
+                var n = oSettings.fnRecordsTotal();
+                var $badge = $('#adobe-cnt')
+                    .removeClass('alert-success alert-warning alert-danger alert-info')
+                    .removeAttr('data-mr-badge-pending')
+                    .attr('data-mr-badge-from-tab', '1');
+                if (n > 0) {
+                    $badge.text(n).addClass('alert-info').css('display', '');
+                } else {
+                    $badge.empty().hide();
+                }
             }
         });
     })
     .fail(function(){
         $('#adobe-msg').text(i18n.t('error.loading'));
+        // Fail ≠ zero apps: show ? so transient errors don't wipe a good prefetch.
+        $('#adobe-cnt')
+            .text('?')
+            .removeClass('alert-success alert-warning alert-danger alert-info')
+            .addClass('alert-warning')
+            .removeAttr('data-mr-badge-pending data-mr-badge-from-tab')
+            
+            .css('display', '');
     });
 });
 </script>

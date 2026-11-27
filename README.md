@@ -48,6 +48,7 @@ If either contact fails, its success time is left unchanged, so the next check-i
 - **year_edition** - Creative Cloud year (e.g., "CC 2025")
 - **installed_version** - Currently installed version
 - **latest_version** - Latest available version
+- **description** - Application description from Adobe inventory
 - **is_up_to_date** - Update status (1=current, 0=outdated, NULL=unknown)
 
 ## User Interface
